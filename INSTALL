@@ -1,0 +1,18 @@
+Module Wikipedia 1.00 Installation Guide.
+----------------------------------------------
+1.Requrements.
+ This module requires the following modules:
+ 	1) LWP
+	2) Config::IniHash
+	3) HTTP::Request::Common
+	4) Data::Dumper
+ It should work on pure-perl systems.
+2.How to install
+ Type the following into your command line:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+ ...and the module is installed.

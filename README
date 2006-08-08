@@ -1,0 +1,10 @@
+The MediaWiki 1.00 Readme.
+
+The MediaWiki module provides high-level interface to MediaWiki
+content management system.
+
+Author: Edward Chernenko <edwardspec@yahoo.com>.
+License: Artistic License(the same as the license of perl).
+See also: CMS::MediaWiki, WWW::Wikipedia
+
+This module should work on pure-perl systems.
