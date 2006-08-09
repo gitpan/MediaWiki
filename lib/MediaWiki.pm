@@ -3,7 +3,7 @@ require Exporter;
 @ISA = qw(Exporter);
 @EXPORT = qw(new);
 
-our($VERSION) = "1.00";
+our($VERSION) = "1.01";
 
 BEGIN
 {
@@ -39,6 +39,10 @@ sub setup
 
 	$mw->{index} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/index.php";
 	$mw->{project} = $mw->_cfg("wiki", "proj");
+
+	# May be used in future versions
+	$mw->{index} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
+		if($mw->_cfg("wiki", "has_query"));
 
 	my $user = $mw->_cfg("bot", "user");
 	my $ret = $mw->login($user, $mw->_cfg("bot", "pass"))
@@ -146,7 +150,7 @@ sub _ini_keycheck
 	}
 	elsif($section eq "wiki")
 	{
-		return if($key ne "host" && $key ne "path" && $key ne "proj" && $key ne "special");
+		return if($key ne "host" && $key ne "path" && $key ne "proj" && $key ne "special" && $key ne "has_filepath" && $key ne "has_query");
 	}
 	elsif($section eq "tmp")
 	{
@@ -276,7 +280,17 @@ get_one_page:
 sub upload
 {
 	my($mw, $page, $content, $note, $force) = @_;
-	return $mw->get($page, "")->upload($content, $note, $force);
+	return $mw->get("Image:$page", "")->upload($content, $note, $force);
+}
+sub filepath
+{
+	my($mw, $page) = @_;
+	return $mw->get("Image:$page", "")->filepath();
+}
+sub download
+{
+	my($mw, $page) = @_;
+	return $mw->get("Image:$page", "")->download();
 }
 sub text
 {
@@ -366,6 +380,8 @@ MediaWiki - OOP MediaWiki engine client
  $pg->markpatrolled();
  $pg->revert();
 
+ $pg->{history_step} = 10;
+
  $pg->replace(sub { my $text_p = shift; } );
  $pg->remove("some_regex_here");
  $pg->remove_template("template_name");
@@ -439,6 +455,14 @@ L</LIMITATIONS>), so force=1 is recommended. That's not default because each rew
 of the image creates new version, no matter are there any differences or not.
 If you never rewrite image, feel free to set $force to 1.
 
+=head3 $c->filepath($image_name)
+
+Returns direct URL for downloading raw image $image_name or undef if image not exists.
+
+=head3 $c->download($image_name)
+
+Returns content of $image_name image or undef if not exists.
+
 =head3 $c->block($user_name, $block_time)
 
 Blocks specified user from editing. Block time should be in format
@@ -507,7 +531,7 @@ Returns page content.
 
 =head3 $pg->oldid($id)
 
-Returns content of an old revision,
+Returns content of an old revision.
 
 =head3 $pg->title()
 
@@ -547,11 +571,19 @@ Adds page to watch list. If $unwatch is set, removes page from watch list
 
 =head3 $pg->unwatch()
 
-Synonym for $pg->watch(0)
+Synonym for $pg->watch(1)
 
 =head3 $pg->upload($content, [, $description [, $force]])
 
 See $c->upload
+
+=head3 $pg->filepath()
+
+See $c->filepath
+
+=head3 $pg->download()
+
+See $c->download()
 
 =head3 $pg->block($block_time)
 
@@ -635,6 +667,11 @@ See $c->{minor} - local setting (only for this page handle).
 =head3 $pg->{watch}
 
 See $c->{watch} - local setting (only for this page handle).
+
+=head3 $pg->{history_step}
+
+Number of edits fetched in one time. This field can be used for task-related optimization
+(increasing it decrease traffic usage and servers load). Default 50.
 
 =head1 EXAMPLE
 

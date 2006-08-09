@@ -25,6 +25,8 @@ use vars qw(
 	$unhex_regex
 	$comment_regex
 	$li_regex
+	$filepath_regex
+	$src_regex
 );
 our @protection = ("", "autoconfirmed", "sysop");
 
@@ -55,6 +57,10 @@ BEGIN
 	$unhex_regex = qr/\.([0-9a-fA-F][0-9a-fA-F])/;
 	$comment_regex = qr/(?<=<span class='comment'>\().*?(?=\)<\/span>)/;
 	$li_regex = qr/(?<=<li>).*?(?=<\/li>)/;
+
+#	<div class="fullImageLink" id="file"><img border="0" src="/mw/images/c/c0/Blank.gif" width="17" height="15" alt="" />
+	$filepath_regex = qr/(?<=<div class="fullImageLink" id="file">).*?(?=<\/div>)/;
+	$src_regex = qr/(?<=src=").*?(?=")/;
 }
 
 sub new
@@ -354,9 +360,12 @@ sub upload
 	print F $content;
 	close F;
 
-	my $res = $obj->{ua}->request(
+	#
+	# TODO: check for all known warnings; return error info
+	#
+	return $obj->{ua}->request(
 		# FIXME: may not work for some MediaWiki installations
-		POST "http://$main::wiki_host/$main::wiki_path/index.php/$ns_special:Upload",
+		POST $obj->{client}->{index} . "/$ns_special:Upload",
 		Content_Type  => 'multipart/form-data',
 		Content       => [(
 			'wpUploadFile' => [ $tmp ],
@@ -365,12 +374,42 @@ sub upload
 			'wpUpload' => 'upload',
 			'wpIgnoreWarning' => $force ? 'true' : 0
 		)]
-	);
+	)->code == 302;
+}
+sub filepath
+{
+	my $obj = shift; my $path;
+	if($obj->{client}->_cfg("wiki", "has_filepath"))
+	{
+		$obj->{ua}->{requests_redirectable} = [];
+		my $res = $obj->{ua}->get($obj->_wiki_url("Special:Filepath/" . $obj->_pagename()));
+		$obj->{ua}->{requests_redirectable} = [ "GET", "HEAD" ];
+		return unless $res->code == 302;
 
-	#
-	# TODO: check for all known warnings; return error info
-	#
-	return 1;
+		$path = $res->header("Location");
+		goto expand_path;
+	}
+
+	my $res = $obj->{ua}->get($obj->_wiki_url());
+	return unless $res->is_success();
+	$res = $res->content();
+
+	$res =~ /$filepath_regex/g;
+	$& =~ /$src_regex/;
+	$path = $&;
+	return unless $path;
+
+expand_path:
+	$path = "http://" . $obj->{client}->_cfg("wiki", "host") . $path
+		if($path =~ /^\//);
+
+	return $path;
+}
+sub download
+{
+	my $obj = shift;
+	my $path = $obj->filepath() || return;
+	return $obj->{ua}->get($path)->content();
 }
 
 sub block
