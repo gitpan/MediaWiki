@@ -3,7 +3,7 @@ require Exporter;
 @ISA = qw(Exporter);
 @EXPORT = qw(new);
 
-our($VERSION) = "1.02";
+our($VERSION) = "1.03";
 
 BEGIN
 {
@@ -41,7 +41,7 @@ sub setup
 	$mw->{project} = $mw->_cfg("wiki", "proj");
 
 	# May be used in future versions
-	$mw->{index} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
+	$mw->{query} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
 		if($mw->_cfg("wiki", "has_query"));
 
 	my $user = $mw->_cfg("bot", "user");
@@ -232,8 +232,42 @@ sub readcat
 {
 	my($mw, $cat) = @_;
 	my(@pages, @subs) = ();
-	my $next;
 
+	#
+	# Can we use optimized interface?
+	#
+	if($mw->{query})
+	{
+		my $res = $mw->{ua}->get($mw->{query} . "?format=xml&what=category&cptitle=$cat");
+		if(!$res->is_success)
+		{
+			delete $mw->{query} if($res->code == 404);
+			goto std_interface;
+		}
+
+		$res = $res->content();
+		while($res =~ /(?<=<page>).*?(?=<\/page>)/sg)
+		{
+			my $page = $&;
+			$page =~ /(?<=<ns>).*?(?=<\/ns>)/;
+			my $ns = $&;
+			$page =~ /(?<=<title>).*?(?=<\/title>)/;
+			my $title = $&;
+
+			if($ns == 14)
+			{
+				push @subs, $mw->get($title, "")->_pagename();
+			}
+			else
+			{
+				push @pages, $title;
+			}
+		}
+		goto done;
+	}
+
+std_interface:
+	my $next;
 get_one_page:
 	my $res = $mw->{ua}->get($mw->{index} . "?title=Category:$cat" . ($next ? "&from=$next" : "") . "&uselang=en");
 	return unless $res->is_success;
@@ -274,6 +308,7 @@ get_one_page:
 	goto get_one_page
 		if($next);
 
+done:
 	return(\@pages, \@subs);
 }
 
@@ -413,6 +448,12 @@ parameter in 'wiki' scope, 'special', which should contain localized name of
 for image upload feature. Section 'tmp' and key 'msgcache' specify path to the
 MediaWiki messages cache.
 
+Options 'has_query' and 'has_filepath' in 'wiki' section enable experimental
+optimized interfaces. Set has_query to 1 if there is query.php extension
+(this should reduce traffic usage and servers load). Set has_filepath to 1
+if there is Special:Filepath page in target wiki (affects only filepath() and
+download() functions).
+
 =head3 $c->login([$user [, $password]])
 
 Performs login if no login information was specified in configuration. Called
@@ -435,7 +476,7 @@ Downloads all MediaWiki messages and saves to messages cache.
 =head3 $c->message($message_name)
 
 Returns message from cache or undef it cache entry not exists. When no cache is
-present at all this functions downloads only one message (but caches it).
+present at all this functions downloads only one message.
 
 =head3 $c->exists($page_name)
 
