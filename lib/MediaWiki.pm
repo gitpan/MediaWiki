@@ -3,7 +3,7 @@ require Exporter;
 @ISA = qw(Exporter);
 @EXPORT = qw(new);
 
-our($VERSION) = "1.01";
+our($VERSION) = "1.02";
 
 BEGIN
 {
@@ -667,6 +667,10 @@ See $c->{minor} - local setting (only for this page handle).
 =head3 $pg->{watch}
 
 See $c->{watch} - local setting (only for this page handle).
+
+=head3 $pg->{summary}
+
+See $c->{summary} - local setting (only for this page handle).
 
 =head3 $pg->{history_step}
 
