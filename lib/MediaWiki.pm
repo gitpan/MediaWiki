@@ -1,19 +1,31 @@
 package MediaWiki;
 require Exporter;
 @ISA = qw(Exporter);
-@EXPORT = qw(new);
+@EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED);
+use strict;
 
-our($VERSION) = "1.03";
+our($VERSION) = "1.04";
+our($has_ini, $has_dumper);
 
 BEGIN
 {
-	use LWP::UserAgent;
-	use HTTP::Request::Common;
-	use Config::IniHash;
-	use Data::Dumper;
+	eval 'use LWP::UserAgent; 1;' or die;
+	eval 'use HTTP::Request::Common; 1;' or die;
+	$has_dumper = eval 'use Data::Dumper; 1;';
+	$has_ini = eval 'use Config::IniHash; 1;';
 
-	use MediaWiki::page;
+	eval 'use MediaWiki::page; 1;' or die;
 }
+
+#
+# Error codes
+#
+sub ERR_NO_ERROR { 0 }
+sub ERR_NO_INIHASH { 1 }
+sub ERR_PARSE_INI { 2 }
+sub ERR_NO_AUTHINFO { 3 }
+sub ERR_NO_MSGCACHE { 4 }
+sub ERR_LOGIN_FAILED { 5 }
 
 sub new
 {
@@ -23,26 +35,45 @@ sub new
 		'agent' => __PACKAGE__ . "/$VERSION",
 		'cookie_jar' => { file => "$ENV{HOME}/.lwpcookies.txt", autosave => 1 }
 	);
+	$ref->{error} = 0;
 
 	return bless $ref, $class;
+}
+sub error
+{
+	my($mw, $code) = @_;
+	$mw->{error} = $code;
 }
 sub setup
 {
 	my($mw, $file) = @_;
-	my $cfg = ReadINI($file || "~/.bot.ini",
-		systemvars => 1,
-		case => 'sensitive',
-		forValue => \&_ini_keycheck
-	);
-	return unless $cfg;
+
+	my $cfg;
+	if(ref($file) eq '') # string with file name
+	{
+		return $mw->error(ERR_NO_INIHASH)
+			if(!$has_ini);
+		$cfg = ReadINI($file || "~/.bot.ini",
+			systemvars => 1,
+			case => 'sensitive',
+			forValue => \&_ini_keycheck
+		);
+		return $mw->error(ERR_PARSE_INI)
+			unless($cfg);
+	}
+	else
+	{
+		$cfg = $file;
+	}
 	$mw->{ini} = $cfg;
 
 	$mw->{index} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/index.php";
 	$mw->{project} = $mw->_cfg("wiki", "proj");
 
-	# May be used in future versions
 	$mw->{query} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
 		if($mw->_cfg("wiki", "has_query"));
+
+	print STDERR $mw->{index}, "\n";
 
 	my $user = $mw->_cfg("bot", "user");
 	my $ret = $mw->login($user, $mw->_cfg("bot", "pass"))
@@ -71,6 +102,18 @@ sub setup
 
 	return $ret;
 }
+sub switch
+{
+	my($mw, @wiki_cfg) = @_;
+	my %cfg = ref($wiki_cfg[0]) eq 'HASH' ? %{$wiki_cfg[0]} : (@wiki_cfg);
+
+	$mw->setup({
+		'bot' => $mw->{ini}->{bot},
+		'wiki' => \%cfg,
+		'tmp' => $mw->{ini}->{tmp}
+	});
+}
+
 sub user
 {
 	my $mw = shift;
@@ -87,7 +130,7 @@ sub user
 sub DESTROY
 {
 	my $mw = shift;
-	if($mw->{msgcache_modified})
+	if($mw->{msgcache_modified} && $has_dumper)
 	{
 		open F, ">" . $mw->{msgcache_path} or die;
 		print F Dumper($mw->{msgcache});
@@ -101,19 +144,24 @@ sub login
 		unless $user;
 	$pass = $mw->_cfg("bot", "pass")
 		unless $pass;
-	if(!($user && $pass))
-	{
-		return;
-	}
+	return $mw->error(ERR_NO_AUTHINFO)
+		unless($user && $pass);
+	return 1 if($user->{logged_in}->{$mw->{index}, $user});
 
 	$mw->{ini}->{bot}->{user} = $user;
 	$mw->{ini}->{bot}->{pass} = $pass;
 
-	return $mw->{ua}->request(
+	my $res = $mw->{ua}->request(
 		POST $mw->{index} . "?title=Special:Userlogin&action=submitlogin",
 		Content_Type  => 'application/x-www-form-urlencoded',
 		Content       => [ ( 'wpName' => $user, 'wpPassword' => $pass, 'wpLoginattempt' => 'Log in' ) ]
-	)->code == 302;
+	);
+	if($res->code == 302)
+	{
+		$user->{logged_in}->{$mw->{index}, $user} = 1;
+		return 1;
+	}
+	return $mw->error(ERR_LOGIN_FAILED);
 }
 
 sub get
@@ -177,7 +225,11 @@ sub _get_msg_key
 sub refresh_messages
 {
 	my $mw = shift;
-	return unless exists $mw->{msgcache};
+	if(!exists $mw->{msgcache})
+	{
+		$mw->error(ERR_NO_MSGCACHE);
+		return;
+	}
 
 	my $key = $mw->_get_msg_key;
 	my $res = $mw->{ua}->get($mw->{index} . "?title=Special:Allmessages");
@@ -199,7 +251,7 @@ sub refresh_messages
 		$val =~ s/\s+$//s;
 		$val =~ s'&lt;'<'g;
 		$val =~ s'&gt;'>'g;
-		$val =~ s"&quot;"'"g;
+		$val =~ s'&quot;'"'g;
 
 		$mw->{msgcache}->{$key . $msg} = $val;
 		$i ++;
@@ -361,6 +413,13 @@ MediaWiki - OOP MediaWiki engine client
 
  $c = MediaWiki->new;
  $c->setup("config.ini");
+ $c->setup({
+ 	'bot' => { 'user' => 'Vasya', 'pass' => '123456' },
+ 	'wiki' => {
+ 		'host => 'en.wikipedia.org',
+ 		'path' => 'w'
+ 	}});
+ $c->switch({ 'host => 'starwars.wikia.com', 'path' => '' });
  $whoami = $c->user();
 
  $text = $c->text("page_name_here");
@@ -434,7 +493,7 @@ MediaWiki - OOP MediaWiki engine client
 
 Performs basic initialization of the client structure. Returns client object.
 
-=head3 $c->setup([ $ini_file_name ])
+=head3 $c->setup([ $ini_file_name | $config_hash_pointer ])
 
 Reads configuration file in INI format; also performs login if username and
 password are specified. If file name is omited, "~/.bot.ini is used.
@@ -454,10 +513,28 @@ optimized interfaces. Set has_query to 1 if there is query.php extension
 if there is Special:Filepath page in target wiki (affects only filepath() and
 download() functions).
 
+You may specify configuration in hash array (pass pointer to it instead of
+string with file name). It should contain something like
+ {
+    'wiki' => { 'host' => ..., 'path' => ... },
+    'bot' => { 'user' => ..., 'pass' => ... }
+ }
+ (key of global hash is section and keys of sub-hashes are keys).
+
 =head3 $c->login([$user [, $password]])
 
 Performs login if no login information was specified in configuration. Called
 automatically from setup().
+
+=head3 $c->switch([ $wiki_hash_pointer ])
+
+Reconfigures client with specified configuration (this is pointer to hash
+array describing _only_ 'wiki' section). Tries login with the same username
+and password if auth info specified. If you have already switched to this
+wiki (or this is initial wiki, set with I<$c->setup()>), login attempt will
+be ommited.
+
+Primary use of this function should be in interwiki bots.
 
 =head3 $c->user()
 
@@ -805,4 +882,4 @@ distributed by the same rules as perl. All right reserved.
 
 =head1 SEE ALSO
 
-L<CMS::MediaWiki>, L<WWW::Wikipedia>
+L<CMS::MediaWiki>, L<WWW::Wikipedia>, L<WWW:Mediawiki::Client>

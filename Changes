@@ -1,5 +1,11 @@
 Module MediaWiki changes log.
 -----------------------------------
+13.08.2006 - version 1.04:
+* fixed critical bug in prepared loading code
+* added switch() routine - for interwiki bots
+* Config::IniHash and Data::Dumper are now optional
+* added basic error handling (incomplete)
+
 09.08.2006 - version 1.03:
 * fixed bug in image uploads
 * added filepath() and download() routines

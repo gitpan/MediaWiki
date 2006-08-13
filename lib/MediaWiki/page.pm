@@ -165,6 +165,11 @@ sub prepare
 		my($a) = split /<\/textarea>/, $t;
 		$a =~ s/.*<textarea.*?>//sg;
 
+		$a =~ s/&lt;/</g;
+		$a =~ s/&gt;/>/g;
+		$a =~ s/&amp;/&/g;
+		$a =~ s/&quot;/"/g;
+
 		$obj->{content} = $a;
 		$obj->{exists} = 1;
 	}
@@ -658,6 +663,29 @@ sub revert
 			unless $last_user;
 
 		$j ++;
+	}
+	return;
+}
+sub find_diff
+{
+	my($obj, $regex) =  @_;
+	my $limit = $obj->{client}->{history_step} || 50;
+	my $offset; my $j = 0;
+
+	$obj->_history_init();
+	while(1)
+	{
+		$offset = $obj->_history_preload($offset);
+
+		for(my $k = $j; $k < @{$obj->{history}}; $k ++, $j ++)
+		{
+			if($obj->{history}->[$k] !~ /$regex/)
+			{
+				return unless($k);
+				return $obj->{history}->[$k-1];
+			}
+		}
+		last unless $offset;
 	}
 	return;
 }
