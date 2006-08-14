@@ -33,6 +33,7 @@ our @protection = ("", "autoconfirmed", "sysop");
 BEGIN
 {
 	use HTTP::Request::Common;
+	use MediaWiki qw(ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP);
 
 	#
 	# We should compile all regular expressions first
@@ -356,7 +357,6 @@ sub upload
 {
 	my($obj, $content, $note, $force) = @_;
 	my $title = $obj->_pagename();
-	my $ns_special = $obj->{client}->_cfg("wiki", "special") || "Special";
 
 	my $tmp = `mktemp`;
 	chomp $tmp;
@@ -366,11 +366,14 @@ sub upload
 	close F;
 
 	#
-	# TODO: check for all known warnings; return error info
+	# TODO: check for all known warnings; return extended error info
 	#
-	return $obj->{ua}->request(
+	my $upload_url = $obj->{client}->{index} . "/Special:Upload";
+	my $loop = 0;
+first_try_or_redir:
+	my $res = $obj->{ua}->request(
 		# FIXME: may not work for some MediaWiki installations
-		POST $obj->{client}->{index} . "/$ns_special:Upload",
+		POST $upload_url,
 		Content_Type  => 'multipart/form-data',
 		Content       => [(
 			'wpUploadFile' => [ $tmp ],
@@ -379,7 +382,16 @@ sub upload
 			'wpUpload' => 'upload',
 			'wpIgnoreWarning' => $force ? 'true' : 0
 		)]
-	)->code == 302;
+	);
+	if($res->code == 301 && $loop < 5)
+	{
+		$upload_url = $res->header("Location");
+		$loop ++;
+
+		goto first_try_or_redir;
+	}
+	$obj->{client}->_error(ERR_LOOP()) if($loop == 5);
+	return $res->code == 302;
 }
 sub filepath
 {

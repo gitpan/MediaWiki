@@ -3,14 +3,17 @@ INSTALL
 lib/MediaWiki.pm
 lib/MediaWiki/page.pm
 Makefile.PL
-MANIFEST			This list of files
-META.yml			Module meta-data (added by MakeMaker)
+MANIFEST
+META.yml
 README
+t/blank.gif
 t/bot.ini
 t/test01_getset.t
 t/test02_simpleget.t
 t/test03_random.t
 t/test04_history.t
 t/test05_replace.t
+t/test06_upload.t
+t/test07_switch.t
 t/test99_pod.t
 t/test99_pod_coverage.t

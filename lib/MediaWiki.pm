@@ -1,10 +1,10 @@
 package MediaWiki;
 require Exporter;
 @ISA = qw(Exporter);
-@EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED);
+@EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP);
 use strict;
 
-our($VERSION) = "1.04";
+our($VERSION) = "1.05";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -26,6 +26,7 @@ sub ERR_PARSE_INI { 2 }
 sub ERR_NO_AUTHINFO { 3 }
 sub ERR_NO_MSGCACHE { 4 }
 sub ERR_LOGIN_FAILED { 5 }
+sub ERR_LOOP { 6 }
 
 sub new
 {
@@ -39,10 +40,13 @@ sub new
 
 	return bless $ref, $class;
 }
-sub error
+sub _error
 {
 	my($mw, $code) = @_;
 	$mw->{error} = $code;
+
+	$mw->{on_error}->()
+		if($mw->{on_error});
 }
 sub setup
 {
@@ -51,14 +55,14 @@ sub setup
 	my $cfg;
 	if(ref($file) eq '') # string with file name
 	{
-		return $mw->error(ERR_NO_INIHASH)
+		return $mw->_error(ERR_NO_INIHASH)
 			if(!$has_ini);
 		$cfg = ReadINI($file || "~/.bot.ini",
 			systemvars => 1,
 			case => 'sensitive',
 			forValue => \&_ini_keycheck
 		);
-		return $mw->error(ERR_PARSE_INI)
+		return $mw->_error(ERR_PARSE_INI)
 			unless($cfg);
 	}
 	else
@@ -72,8 +76,6 @@ sub setup
 
 	$mw->{query} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
 		if($mw->_cfg("wiki", "has_query"));
-
-	print STDERR $mw->{index}, "\n";
 
 	my $user = $mw->_cfg("bot", "user");
 	my $ret = $mw->login($user, $mw->_cfg("bot", "pass"))
@@ -144,9 +146,9 @@ sub login
 		unless $user;
 	$pass = $mw->_cfg("bot", "pass")
 		unless $pass;
-	return $mw->error(ERR_NO_AUTHINFO)
+	return $mw->_error(ERR_NO_AUTHINFO)
 		unless($user && $pass);
-	return 1 if($user->{logged_in}->{$mw->{index}, $user});
+	return 1 if($mw->{logged_in}->{$mw->{index}, $user});
 
 	$mw->{ini}->{bot}->{user} = $user;
 	$mw->{ini}->{bot}->{pass} = $pass;
@@ -158,10 +160,10 @@ sub login
 	);
 	if($res->code == 302)
 	{
-		$user->{logged_in}->{$mw->{index}, $user} = 1;
+		$mw->{logged_in}->{$mw->{index}, $user} = 1;
 		return 1;
 	}
-	return $mw->error(ERR_LOGIN_FAILED);
+	return $mw->_error(ERR_LOGIN_FAILED);
 }
 
 sub get
@@ -225,9 +227,9 @@ sub _get_msg_key
 sub refresh_messages
 {
 	my $mw = shift;
-	if(!exists $mw->{msgcache})
+	if(!exists $mw->{msgcache} || !$has_dumper)
 	{
-		$mw->error(ERR_NO_MSGCACHE);
+		$mw->_error(ERR_NO_MSGCACHE);
 		return;
 	}
 
@@ -412,18 +414,18 @@ MediaWiki - OOP MediaWiki engine client
  use MediaWiki;
 
  $c = MediaWiki->new;
- $c->setup("config.ini");
- $c->setup({
+ $is_ok = $c->setup("config.ini");
+ $is_ok = $c->setup({
  	'bot' => { 'user' => 'Vasya', 'pass' => '123456' },
  	'wiki' => {
  		'host => 'en.wikipedia.org',
  		'path' => 'w'
  	}});
- $c->switch({ 'host => 'starwars.wikia.com', 'path' => '' });
+ $is_ok = $c->switch({ 'host => 'starwars.wikia.com', 'path' => '' });
  $whoami = $c->user();
 
  $text = $c->text("page_name_here");
- $c->text("page_name_here", "some new text");
+ $is_ok = $c->text("page_name_here", "some new text");
 
  $c->refresh_messages();
  $msg = $c->message("MediaWiki_message_name");
@@ -432,53 +434,58 @@ MediaWiki - OOP MediaWiki engine client
 
  my($articles_p, $subcats_p) = $c->readcat("category_name");
 
- $c->upload("image_name", `cat myfoto.jpg`, "some notes", $force);
+ $is_ok = $c->upload("image_name", `cat myfoto.jpg`, "some notes", $force);
 
- $c->block("VasyaPupkin", "2 days");
- $c->unblock("VasyaPupkin");
+ $is_ok = $c->block("VasyaPupkin", "2 days");
+ $is_ok = $c->unblock("VasyaPupkin");
 
  $c->{summary} = "Automatic auto-replacements 1.2";
  $c->{minor} = 1;
  $c->{watch} = 1;
+
+ if(!$is_ok)
+ {
+    $err = $c->{error};
+    # do something
+ }
 
  $pg = $c->random();
  $pg = $c->get("page_name");
  $pg = $c->get("page_name", "");
  $pg = $c->get("page_name", "rw");
 
- $pg->load();
- $pg->save();
- $pg->prepare();
+ $is_ok = $pg->load();
+ $is_ok = $pg->save();
  $text = $pg->oldid($old_version_id);
  $text = $pg->content();
  $title = $pg->title();
 
- $pg->delete();
- $pg->restore();
- $pg->protect();
- $pg->protect($edit_protection);
- $pg->protect($edit_protection, $move_protection);
+ $is_ok = $pg->delete();
+ $is_ok = $pg->restore();
+ $is_ok = $pg->protect();
+ $is_ok = $pg->protect($edit_protection);
+ $is_ok = $pg->protect($edit_protection, $move_protection);
 
- $pg->move("new_name");
- $pg->watch();
- $pg->unwatch();
+ $is_ok = $pg->move("new_name");
+ $is_ok = $pg->watch();
+ $is_ok = $pg->unwatch();
 
- $pg->upload(`cat myfoto.jpg`, "some notes", $force);
+ $is_ok = $pg->upload(`cat myfoto.jpg`, "some notes", $force);
 
- $pg->block("2 days");
- $pg->unblock();
+ $is_ok = $pg->block("2 days");
+ $is_ok = $pg->unblock();
 
  $pg->history(sub { my $edit_p = shift; } );
  $pg->history_clear();
  my $edit_p = $pg->last_edit;
- $pg->markpatrolled();
- $pg->revert();
+ $is_ok = $pg->markpatrolled();
+ $is_ok = $pg->revert();
 
  $pg->{history_step} = 10;
 
- $pg->replace(sub { my $text_p = shift; } );
- $pg->remove("some_regex_here");
- $pg->remove_template("template_name");
+ $is_ok = $pg->replace(sub { my $text_p = shift; } );
+ $is_ok = $pg->remove("some_regex_here");
+ $is_ok = $pg->remove_template("template_name");
 
  $pg->{content} = "new text";
  $pg->{summary} = "do something strange";
@@ -501,11 +508,8 @@ password are specified. If file name is omited, "~/.bot.ini is used.
 Configuration file can use [bot], [wiki] and [tmp] sections. Keys 'user' and
 'pass' in 'bot' section specify login information. 'wiki' section B<must> have
 'host' and 'path' keys (for example, host may be 'en.wikipedia.org' and path
-may be 'w') which specify path to I<index.php> script. There is also optional
-parameter in 'wiki' scope, 'special', which should contain localized name of
-'Special' namespace (only if default value is being overwritten). This is needed
-for image upload feature. Section 'tmp' and key 'msgcache' specify path to the
-MediaWiki messages cache.
+may be 'w') which specify path to I<index.php> script. Section 'tmp' and key
+'msgcache' specify path to the MediaWiki messages cache.
 
 Options 'has_query' and 'has_filepath' in 'wiki' section enable experimental
 optimized interfaces. Set has_query to 1 if there is query.php extension
@@ -628,6 +632,15 @@ set, account default will be used; 0 disables adding to list.
 =head3 $c->{summary}
 
 Short description used by default for all edits.
+
+=head3 $c->{error}
+
+Contains advanced error code or 0 if no error/unknown error occured.
+See also L</ERRORS HANDLING>
+
+=head3 $c->{on_error}
+
+Callback used each time the error occured.
 
 =head2 Page object (MediaWiki::page) functions
 
@@ -795,6 +808,44 @@ See $c->{summary} - local setting (only for this page handle).
 Number of edits fetched in one time. This field can be used for task-related optimization
 (increasing it decrease traffic usage and servers load). Default 50.
 
+=head1 ERRORS HANDLING
+
+Currently all methods where return value isn't documented return 1 for success and undef
+for failure. You may check advanced error code in $c->{error}, but now not all errors are
+properly handled (0 in $c->{error} can mean both success and unknown error).
+
+Also callback may be specified: if there is pointer to subroutine in $c->{on_error} when
+error occures, it will be called (with no parameters - error code in $c->{error}).
+
+=head2 ERR_NO_ERROR = 0
+
+No error or unknown error.
+
+=head2 ERR_NO_INIHASH
+
+$c->setup() called with configuration file name but module Config::IniHash not found.
+
+=head2 ERR_PARSE_INI
+
+Parser Config::IniHash found fatal error in configuration file.
+
+=head2 ERR_NO_AUTHINFO
+
+$c->login() called but no auth info known (bot's username & password)
+
+=head2 ERR_NO_MSGCACHE
+
+$c->refresh_messages() called but no path specified in configuration (or Data::Dumper
+module not found).
+
+=head2 ERR_LOGIN_FAILED
+
+Login returned something unexpected (maybe password is incorrect).
+
+=head2 ERR_LOOP
+
+Endless loop in some of modules (internal module error or error in wiki engine).
+
 =head1 EXAMPLE
 
 All examples start with
@@ -861,14 +912,6 @@ All examples start with
       }
     }
  }
-
-=head1 LIMITATIONS
-
-=over
-
-=item No advanced errors handling available (only true/false return values). Image upload warnings are not being checked.
-
-=back
 
 =head1 AUTHOR
 

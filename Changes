@@ -1,5 +1,11 @@
 Module MediaWiki changes log.
 -----------------------------------
+14.08.2006 - version 1.05:
+* fixed bug in login()
+* config key 'special' is not needed more for uploads
+* documented error codes
+* added on_error callback
+
 13.08.2006 - version 1.04:
 * fixed critical bug in prepared loading code
 * added switch() routine - for interwiki bots
