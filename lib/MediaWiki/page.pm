@@ -59,7 +59,6 @@ BEGIN
 	$comment_regex = qr/(?<=<span class='comment'>\().*?(?=\)<\/span>)/;
 	$li_regex = qr/(?<=<li>).*?(?=<\/li>)/;
 
-#	<div class="fullImageLink" id="file"><img border="0" src="/mw/images/c/c0/Blank.gif" width="17" height="15" alt="" />
 	$filepath_regex = qr/(?<=<div class="fullImageLink" id="file">).*?(?=<\/div>)/;
 	$src_regex = qr/(?<=src=").*?(?=")/;
 }
@@ -130,7 +129,7 @@ sub save
 		if(!$obj->{prepared});
 	$obj->{prepared} = 0;
 
-	my $ret = $obj->{client}->{ua}->request(
+	my $res = $obj->{client}->{ua}->request(
 		POST $obj->_wiki_url . "&action=edit",
 		Content_Type  => 'application/x-www-form-urlencoded',
 		Content       => [ (
@@ -143,15 +142,16 @@ sub save
 			'title' => $obj->{title},
 			'action' => 'submit',
 			'wpMinoredit' => $obj->{minor},
-			'wpAutoSummary' => $obj->{autosumm}
+			'wpAutoSummary' => $obj->{autosumm},
+			'wpRecreate' => 1
 		)]
-	)->code;
-	if($ret == 302)
+	);
+	if($res->code == 302)
 	{
 		$obj->history_clear();
 		return 1;
 	}
-	return 0;
+	return;
 }
 sub prepare
 {
@@ -482,8 +482,6 @@ sub unblock
 			'wpBlock' => 'Unblock'
 		)]
 	);
-
-	print STDERR $res->request->as_string, "\n\n", $res->as_string;
 }
 
 sub _history_init

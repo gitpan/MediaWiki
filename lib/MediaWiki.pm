@@ -4,7 +4,7 @@ require Exporter;
 @EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP);
 use strict;
 
-our($VERSION) = "1.05";
+our($VERSION) = "1.06";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -57,7 +57,7 @@ sub setup
 	{
 		return $mw->_error(ERR_NO_INIHASH)
 			if(!$has_ini);
-		$cfg = ReadINI($file || "~/.bot.ini",
+		$cfg = ReadINI($file || "$ENV{HOME}/.bot.ini",
 			systemvars => 1,
 			case => 'sensitive',
 			forValue => \&_ini_keycheck
@@ -345,7 +345,6 @@ get_one_page:
 	if($pos)
 	{
 		my $sub = substr $res, $pos, (index($res, '</ul>', $pos) - $pos);
-		print $sub, "\n\n";
 
 		while($sub =~ /(?<=title=").*?(?=">)/sg)
 		{
@@ -478,6 +477,7 @@ MediaWiki - OOP MediaWiki engine client
  $pg->history(sub { my $edit_p = shift; } );
  $pg->history_clear();
  my $edit_p = $pg->last_edit;
+ my $edit_p = $pg->find_diff(qr/some_regex/);
  $is_ok = $pg->markpatrolled();
  $is_ok = $pg->revert();
 
@@ -752,6 +752,10 @@ Clear history cache. This is done automatically when page is modified.
 =head3 $pg->last_edit()
 
 Return structure of the last edit
+
+=head3 $pg->find_diff($regex)
+
+Finds latest edit in which text matched against $regex added and returns it's structure.
 
 =head3 $pg->markpatrolled()
 
