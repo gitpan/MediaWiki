@@ -12,12 +12,13 @@ my $c = MediaWiki->new();
 $c->setup("t/bot.ini");
 
 my $pg = $c->get($PAGE, "rw");
-ok($pg->{prepared});
+ok($pg->{prepared} && $pg->content);
 
 $pg->{content} .= "---\n $STR";
 $pg->{summary} = "Test of [[m:MediaWiki (perl)|MediaWiki]] perl module (1)";
 $pg->save();
 ok(!$pg->{prepared});
+$pg->{content} = "";
 $pg->load();
 
 ok($pg->{content} =~ s/$STR$//g);

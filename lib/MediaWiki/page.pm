@@ -16,17 +16,19 @@ use vars qw(
 	$timestamp_regex
 	$historyuser_regex1
 	$historyuser_regex2
-	$anon_regex
+	$noanon_regex
 	$minor_regex
-	$date_regex
 	$autocomment_regex
 	$autocomment_delete_regex
 	$autocomment_clear_regex
 	$unhex_regex
+	$unhex_regex2
 	$comment_regex
 	$li_regex
+	$link_regex1
 	$filepath_regex
 	$src_regex
+	$oldid_regex
 );
 our @protection = ("", "autoconfirmed", "sysop");
 
@@ -38,29 +40,34 @@ BEGIN
 	#
 	# We should compile all regular expressions first
 	#
-	$edittime_regex = qr/(?<=value=")[0-9]+(?=" name="wpEdittime")/;
-	$watchthis_regex = qr/name='wpWatchthis' checked/;
-	$minoredit_regex = qr/(?<=value=')1(?=' name='wpMinoredit')/;
-	$edittoken_regex = qr/(?<=value=")[0-9a-f]+(?=" name="wpEditToken")/;
-	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=")[0-9a-f]+(?=")/;
-	$autosumm_regex = qr/(?<=name="wpAutoSummary" value=")[0-9a-f]+(?=")/;
-	$edittoken_delete_regex = qr/.*wpEditToken["'] value="(.*?)".*/;
-	$pagehistory_delete_regex = qr/.*<ul id\="pagehistory">(.*?)<\/ul>.*/;
-	$timestamp_regex = qr/(?=>).*?(?=<\/a> <span class='history_user'>)/;
-	$historyuser_regex1 = qr/(?<=<span class='history_user'>).*?(?=<\/span>)/;
-	$historyuser_regex2 = qr/(?<=\:)(.*?)">\1(?=<\/a>)/;
-	$anon_regex = qr/(?<=Contributions">).*?(?=<\/a>)/;
-	$minor_regex = qr/span class='minor'/;
-	$date_regex = qr/(.*?)<.*/;
-	$autocomment_regex = qr/(?<=<span class="autocomment">).*?(?=<\/span>)/;
-	$autocomment_delete_regex = qr/<span class="autocomment">.*?<\/span>\s*/;
-	$autocomment_clear_regex = qr/(?<=#).*?(?=")/;
-	$unhex_regex = qr/\.([0-9a-fA-F][0-9a-fA-F])/;
-	$comment_regex = qr/(?<=<span class='comment'>\().*?(?=\)<\/span>)/;
-	$li_regex = qr/(?<=<li>).*?(?=<\/li>)/;
+	$edittime_regex = qr/(?<=value=["'])[0-9]+(?=["'] name=["']wpEdittime["'])/;
+	$watchthis_regex = qr/name=["']wpWatchthis["'] checked/;
+	$minoredit_regex = qr/(?<=value=["'])1(?=["'] name=["']wpMinoredit["'])/;
+	$edittoken_regex = qr/(?<=value=")[0-9a-f]+(?=" name=["']wpEditToken["'])/;
+	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=")[0-9a-f]+(?=["'])/;
+	$autosumm_regex = qr/(?<=name=["']wpAutoSummary["'] value=["'])[0-9a-f]+(?=["'])/;
+	$edittoken_delete_regex = qr/.*wpEditToken["'] value=["'](.*?)["'].*/;
+	$pagehistory_delete_regex = qr/.*<ul id\=["']pagehistory["']>(.*?)<\/ul>.*/;
 
-	$filepath_regex = qr/(?<=<div class="fullImageLink" id="file">).*?(?=<\/div>)/;
-	$src_regex = qr/(?<=src=").*?(?=")/;
+	$timestamp_regex = qr/(?<=>).*?(?=<\/a> <span class=['"]history\-user['"]>)/;
+
+	$historyuser_regex1 = qr/(?<=<span class=["']history\-user["']>).*?(?=<\/span>)/;
+	$historyuser_regex2 = qr/(?<=&amp;target=).*?(?=["'])/;
+	$noanon_regex = qr/contribs<\/a>/;
+	$minor_regex = qr/span class=["']minor["']/;
+	$autocomment_regex = qr/(?<=<span class=["']autocomment["']>).*?(?=<\/span>)/;
+	$autocomment_delete_regex = qr/<span class=["']autocomment["']>.*?<\/span>\s*/;
+	$autocomment_clear_regex = qr/(?<=#).*?(?=["'])/;
+	$unhex_regex = qr/\.([0-9a-fA-F][0-9a-fA-F])/;
+	$unhex_regex2 = qr/\%([0-9a-fA-F][0-9a-fA-F])/;
+	$comment_regex = qr/(?<=<span class=["']comment["']>\().*?(?=\)<\/span>)/;
+	$li_regex = qr/(?<=<li>).*?(?=<\/li>)/;
+	$link_regex1 = qr/<a href=["']\/wiki\/(.*?)["'].*?title=["'](?:.*?)['"]>(.*?)<\/a>/;
+
+	$filepath_regex = qr/(?<=<div class=["']fullImageLink["'] id=["']file["']>).*?(?=<\/div>)/;
+	$src_regex = qr/(?<=src=['"]).*?(?=['"])/;
+
+	$oldid_regex = qr/(?<=&amp;oldid=)[0-9]+(?=")/;
 }
 
 sub new
@@ -73,6 +80,8 @@ sub new
 	$ref->{prepared} = ($params{-mode} && $params{-mode} =~ /w/) ? 1 : 0;
 	$ref->{loaded} = 0;
 	$ref->{ua} = $ref->{client}->{ua};
+
+	$ref->{title} =~ tr/_/ /;
 
 	bless $ref, $class;
 	$ref->load()
@@ -132,7 +141,7 @@ sub save
 	my $res = $obj->{client}->{ua}->request(
 		POST $obj->_wiki_url . "&action=edit",
 		Content_Type  => 'application/x-www-form-urlencoded',
-		Content       => [ (
+		Content       => [(
 			'wpTextbox1' => $obj->{content},
 			'wpEdittime' => $obj->{edittime},
 			'wpSave' => 'Save page',
@@ -370,6 +379,7 @@ sub upload
 	#
 	my $upload_url = $obj->{client}->{index} . "/Special:Upload";
 	my $loop = 0;
+
 first_try_or_redir:
 	my $res = $obj->{ua}->request(
 		# FIXME: may not work for some MediaWiki installations
@@ -396,11 +406,24 @@ first_try_or_redir:
 sub filepath
 {
 	my $obj = shift; my $path;
+
 	if($obj->{client}->_cfg("wiki", "has_filepath"))
 	{
+		my $filepath_url = $obj->_wiki_url("Special:Filepath/" . $obj->_pagename());
+		my $loop = 0;
+first_try_or_redir:
 		$obj->{ua}->{requests_redirectable} = [];
-		my $res = $obj->{ua}->get($obj->_wiki_url("Special:Filepath/" . $obj->_pagename()));
+		my $res = $obj->{ua}->get($filepath_url);
 		$obj->{ua}->{requests_redirectable} = [ "GET", "HEAD" ];
+
+		if($res->code == 301 && $loop < 5)
+		{
+			$filepath_url = $res->header("Location");
+			$loop ++;
+
+			goto first_try_or_redir;
+		}
+		$obj->{client}->_error(ERR_LOOP()) if($loop == 5);
 		return unless $res->code == 302;
 
 		$path = $res->header("Location");
@@ -483,6 +506,13 @@ sub unblock
 		)]
 	);
 }
+sub _url_decode
+{
+	my $str = shift;
+	$str =~ tr/+/ /;
+	$str =~ s/$unhex_regex2/pack("C", hex($1))/eg;
+	return $str;
+}
 
 sub _history_init
 {
@@ -500,7 +530,7 @@ sub _history_preload
 	my $limit = $obj->{client}->{history_step} || 50;
 
 	my $wiki_path = $obj->{client}->_cfg("wiki", "path");
-	my $link_regex = qr/<a href="\/$wiki_path\/index\.php\/(.*?)" title="(.*?)">:?(.*?)<\/a>/;
+	my $link_regex2 = qr/<a href=['"]\/$wiki_path\/index\.php(?:\/|\?title=)(.*?)\&.*?['"]>(.*?)<\/a>/;
 	my $offset_regex = qr/(?<=offset=)[0-9]+[^"]*" title="$page">next $limit<\/a>/;
 
 	my $res = $obj->{ua}->get($obj->_wiki_url . "&action=history&limit=$limit" . ($offset ? "&offset=$offset" : "") . "&uselang=en");
@@ -524,30 +554,21 @@ sub _history_preload
 		my $item = $&;
 		my $oldid;
 
-		while($item =~ /(?<=&amp;oldid=)[0-9]+(?=" title="$page")/g)
+		while($item =~ /$oldid_regex/g)
 		{
 			$oldid = $&;
 		}
 
 		$item =~ /$timestamp_regex/;
-		my($time, $date) = split /, /, $&;
-		my @a = split />/, $time;
-		$time = pop @a;
-		$date =~ s/$date_regex/$1/g;
+		my @a = split />/, $&;
+		my $datetime = pop @a;
+		my($time, $date) = split /, /, $datetime;
 
 		$item =~ /$historyuser_regex1/;
 		my $user = $&; my $anon;
-		if($user =~ /$historyuser_regex2/)
-		{
-			$user = (split /"/, $&)[0];
-			$anon = 0;
-		}
-		else
-		{
-			$user =~ /$anon_regex/;
-			$user = $&;
-			$anon = 1;
-		}
+		$anon = ($user =~ /$noanon_regex/) ? 0 : 1;
+		$user =~ /$historyuser_regex2/;
+		$user = _url_decode($&);
 
 		my $minor = 0;
 		$minor = 1
@@ -568,7 +589,10 @@ sub _history_preload
 		if($item =~ /$comment_regex/)
 		{
 			$comment = $&;
-			$comment =~ s/$link_regex/[[$1|$3]]/g;
+			$comment =~ s/$link_regex1/[[$1|$2]]/g;
+			$comment =~ s/$link_regex2/[[$1|$2]]/g;
+
+			$comment =~ s/\[\[(.*?)\|(.*?)\]\]/"[[" . _url_decode($1) . "|" . _url_decode($2) . "]]"/ge;
 		}
 
 		my $edit = {
@@ -640,8 +664,7 @@ sub markpatrolled
 }
 sub revert
 {
-	my $obj = shift;
-	my $msg = $obj->{client}->message("Revertpage") || "rv";
+	my($obj, $expected_last_user) = @_;
 	$obj->_history_init();
 
 	my $j = 0; my $offset = $obj->{history_offset}; my $last_user;
@@ -655,8 +678,10 @@ sub revert
 
 		my $edit = $obj->{history}->[$j];
 		my $user = $edit->{user};
+
 		if($last_user && $last_user ne $user)
 		{
+			my $msg = $obj->{client}->message("Revertpage") || "rv";
 			$msg =~ s/\$2/$last_user/g;
 			$msg =~ s/\$1/$user/g;
 
@@ -666,11 +691,15 @@ sub revert
 			$obj->{summary} = $msg;
 			my $ret = $obj->save();
 			$obj->{summary} = $save_summ;
+
 			return $ret;
 		}
 
-		$last_user = $edit->{user}
-			unless $last_user;
+		if(!$last_user)
+		{
+			return if($expected_last_user && ($edit->{user} ne $expected_last_user));
+			$last_user = $edit->{user};
+		}
 
 		$j ++;
 	}

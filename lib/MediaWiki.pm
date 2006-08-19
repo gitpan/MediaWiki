@@ -4,7 +4,7 @@ require Exporter;
 @EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP);
 use strict;
 
-our($VERSION) = "1.06";
+our($VERSION) = "1.07";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -32,9 +32,11 @@ sub new
 {
 	my $class = shift;
 	my $ref = {};
+
+
 	$ref->{ua} = LWP::UserAgent->new(
 		'agent' => __PACKAGE__ . "/$VERSION",
-		'cookie_jar' => { file => "$ENV{HOME}/.lwpcookies.txt", autosave => 1 }
+		'cookie_jar' => { file => ($ENV{HOME} ? "$ENV{HOME}/" : "") . ".lwpcookies.txt", autosave => 1 }
 	);
 	$ref->{error} = 0;
 
@@ -53,11 +55,12 @@ sub setup
 	my($mw, $file) = @_;
 
 	my $cfg;
-	if(ref($file) eq '') # string with file name
+	if(!$file || ref($file) eq '') # string with file name
 	{
 		return $mw->_error(ERR_NO_INIHASH)
 			if(!$has_ini);
-		$cfg = ReadINI($file || "$ENV{HOME}/.bot.ini",
+
+		$cfg = ReadINI($file || (($ENV{HOME} ? "$ENV{HOME}/" : "") . ".bot.ini"),
 			systemvars => 1,
 			case => 'sensitive',
 			forValue => \&_ini_keycheck
@@ -106,12 +109,49 @@ sub setup
 }
 sub switch
 {
-	my($mw, @wiki_cfg) = @_;
-	my %cfg = ref($wiki_cfg[0]) eq 'HASH' ? %{$wiki_cfg[0]} : (@wiki_cfg);
+	my($mw, @p) = @_;
+	my %wiki_cfg = ();
+	if(defined $p[0] && ref($p[0]) eq 'HASH')
+	{
+		%wiki_cfg = %{$p[0]};
+	}
+	else
+	{
+		if(defined $p[0])
+		{
+			$wiki_cfg{host} = $p[0];
+			if(defined $p[1])
+			{
+				if(ref($p[1]) eq 'HASH')
+				{
+					foreach my $key(%{$p[1]})
+					{
+						$wiki_cfg{$key} = $p[1]->{$key};
+					}
+				}
+				else
+				{
+					$wiki_cfg{path} = $p[1];
+					if(defined $p[2] && ref($p[2]) eq 'HASH')
+					{
+						foreach my $key(%{$p[2]})
+						{
+							$wiki_cfg{$key} = $p[2]->{$key};
+						}
+					}
+				}
+			}
+		}
+	}
+	foreach my $key(keys %{$mw->{ini}->{wiki}})
+	{
+		$wiki_cfg{$key} = $mw->{ini}->{wiki}->{$key}
+			if(!exists $wiki_cfg{$key});
+	}
 
 	$mw->setup({
 		'bot' => $mw->{ini}->{bot},
-		'wiki' => \%cfg,
+		'wiki' => \%wiki_cfg,
 		'tmp' => $mw->{ini}->{tmp}
 	});
 }
@@ -134,7 +174,7 @@ sub DESTROY
 	my $mw = shift;
 	if($mw->{msgcache_modified} && $has_dumper)
 	{
-		open F, ">" . $mw->{msgcache_path} or die;
+		open F, ">" . $mw->{msgcache_path} or return;
 		print F Dumper($mw->{msgcache});
 		close F;
 	}
@@ -419,8 +459,9 @@ MediaWiki - OOP MediaWiki engine client
  	'wiki' => {
  		'host => 'en.wikipedia.org',
  		'path' => 'w'
- 	}});
- $is_ok = $c->switch({ 'host => 'starwars.wikia.com', 'path' => '' });
+ 	}})
+ $is_ok = $c->switch('starwars.wikia.com');
+ $is_ok = $c->switch('en.wikipedia.org', 'w', { 'has_query' => 1, 'has_filepath' => 1 });
  $whoami = $c->user();
 
  $text = $c->text("page_name_here");
@@ -530,13 +571,18 @@ string with file name). It should contain something like
 Performs login if no login information was specified in configuration. Called
 automatically from setup().
 
-=head3 $c->switch([ $wiki_hash_pointer ])
+=head3 $c->switch(($wiki_hash_pointer | $wiki_host [, $wiki_path] [, $wiki_hash_pointer]))
 
 Reconfigures client with specified configuration (this is pointer to hash
 array describing _only_ 'wiki' section). Tries login with the same username
 and password if auth info specified. If you have already switched to this
 wiki (or this is initial wiki, set with I<$c->setup()>), login attempt will
 be ommited.
+
+First parameter is either hash pointer ({ 'host' => ..., 'path' => ... }) or
+host in first parameter and path in second optional parameter. You may add
+hash array pointer as second or third parameter to set other keys, something
+like 'has_query'. Call to switch() preserves keys not specified in parameters.
 
 Primary use of this function should be in interwiki bots.
 
@@ -764,10 +810,12 @@ option and may not present in many MediaWiki installations.
 
 B<Note>: this operation requires sysop rights.
 
-=head3 $pg->revert()
+=head3 $pg->revert([$user])
 
 Reverts all changes made by last user who edited this page. This functions B<not>
-uses admin quick-revert interface and can be run by anybody.
+uses admin quick-revert interface and can be run by anybody. If $user parameter
+specified, revert() will do nothing if this user's edits were already reverted
+(something already reverted it). Usage of this optional parameter is recommended.
 
 B<Note>: MediaWiki message 'Revertpage' will be used as summary.
 

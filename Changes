@@ -1,5 +1,12 @@
 Module MediaWiki changes log.
 -----------------------------------
+19.08.2006 - version 1.07:
+minor bugfixes
+* fixed bug in switch()
+* switch() call extended
+* history parser updated for use with latest cvs version of wiki engine
+* 301 redirects support in filepath()
+
 15.08.2006 - version 1.06:
 minor bugfixes
 * fixed minor bug in setup

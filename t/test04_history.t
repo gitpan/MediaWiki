@@ -13,7 +13,7 @@ ok($user);
 
 my $i = 0;
 TRY_FIND_TEST_PAGE:
-	while($i < 10)
+	while($i < 3)
 	{
 		my $pg = $c->random();
 		my $e = $pg->last_edit;
