@@ -1,10 +1,10 @@
 package MediaWiki;
 require Exporter;
 @ISA = qw(Exporter);
-@EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP);
+@EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP ERR_NOT_FOUND);
 use strict;
 
-our($VERSION) = "1.07";
+our($VERSION) = "1.08";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -27,6 +27,7 @@ sub ERR_NO_AUTHINFO { 3 }
 sub ERR_NO_MSGCACHE { 4 }
 sub ERR_LOGIN_FAILED { 5 }
 sub ERR_LOOP { 6 }
+sub ERR_NOT_FOUND { 7 }
 
 sub new
 {
@@ -75,7 +76,6 @@ sub setup
 	$mw->{ini} = $cfg;
 
 	$mw->{index} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/index.php";
-	$mw->{project} = $mw->_cfg("wiki", "proj");
 
 	$mw->{query} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
 		if($mw->_cfg("wiki", "has_query"));
@@ -155,7 +155,6 @@ sub switch
 		'tmp' => $mw->{ini}->{tmp}
 	});
 }
-
 sub user
 {
 	my $mw = shift;
@@ -240,7 +239,7 @@ sub _ini_keycheck
 	}
 	elsif($section eq "wiki")
 	{
-		return if($key ne "host" && $key ne "path" && $key ne "proj" && $key ne "special" && $key ne "has_filepath" && $key ne "has_query");
+		return if($key ne "host" && $key ne "path" && $key ne "has_filepath" && $key ne "has_query");
 	}
 	elsif($section eq "tmp")
 	{
@@ -423,9 +422,11 @@ sub download
 sub text
 {
 	my($mw, $page, $content) = @_;
-
-	return $mw->get($page)->{content}
-		unless(defined $content);
+	if(!defined $content)
+	{
+		my $obj = $mw->get($page);
+		return $obj->{exists} ? $obj->{content} : $mw->_error(ERR_NOT_FOUND);
+	}
 
 	my $obj = $mw->get($page, "w");
 	$obj->{content} = $content;
@@ -594,7 +595,7 @@ client IP from page history. Note: no result caching is done.
 =head3 $c->text( $page_name [, $new_text ])
 
 If $new_text is specified, replaces content of $page_name article with $new_text.
-Returns current revision text otherwise.
+Returns current revision text otherwise. Errors: ERR_NOT_FOUND (article not exists).
 
 =head3 $c->refresh_messages()
 
@@ -897,6 +898,10 @@ Login returned something unexpected (maybe password is incorrect).
 =head2 ERR_LOOP
 
 Endless loop in some of modules (internal module error or error in wiki engine).
+
+=head2 ERR_NOT_FOUND
+
+$c->text() called but page not exists.
 
 =head1 EXAMPLE
 

@@ -64,7 +64,7 @@ BEGIN
 	$li_regex = qr/(?<=<li>).*?(?=<\/li>)/;
 	$link_regex1 = qr/<a href=["']\/wiki\/(.*?)["'].*?title=["'](?:.*?)['"]>(.*?)<\/a>/;
 
-	$filepath_regex = qr/(?<=<div class=["']fullImageLink["'] id=["']file["']>).*?(?=<\/div>)/;
+	$filepath_regex = qr/(?<=<div class=["']fullImageLink["'] id=["']file["']>)[.\n]*?(?=<\/div>)/;
 	$src_regex = qr/(?<=src=['"]).*?(?=['"])/;
 
 	$oldid_regex = qr/(?<=&amp;oldid=)[0-9]+(?=")/;
@@ -120,8 +120,9 @@ sub load
 		$obj->{content} = $t->content;
 		if($obj->{title} eq 'Special:Random')
 		{
-			my $proj = $obj->{project};
-			($obj->{title}) = split(/ (—|-) $proj/, $t->header("Title"));
+			my $title = $t->header("Title");
+			$title =~ s/\s*[—-](.*?)$//;
+			$obj->{title} = $title;
 			$obj->load();
 		}
 

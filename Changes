@@ -1,5 +1,11 @@
 Module MediaWiki changes log.
 -----------------------------------
+20.08.2006 - version 1.08
+minor feature enhancements
+* 'project' configuration key not needed more in random()
+* small bugfix in filepath()
+* added new ERR_NOT_FOUND check into $c->text()
+
 19.08.2006 - version 1.07:
 minor bugfixes
 * fixed bug in switch()
