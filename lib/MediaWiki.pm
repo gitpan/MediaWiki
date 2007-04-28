@@ -1,10 +1,10 @@
 package MediaWiki;
 require Exporter;
 @ISA = qw(Exporter);
-@EXPORT = qw(new ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP ERR_NOT_FOUND);
+@EXPORT = qw(ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP ERR_NOT_FOUND);
 use strict;
 
-our($VERSION) = "1.08";
+our($VERSION) = "1.1";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -14,7 +14,7 @@ BEGIN
 	$has_dumper = eval 'use Data::Dumper; 1;';
 	$has_ini = eval 'use Config::IniHash; 1;';
 
-	eval 'use MediaWiki::page; 1;' or die;
+	use MediaWiki::page qw();
 }
 
 #
@@ -33,7 +33,6 @@ sub new
 {
 	my $class = shift;
 	my $ref = {};
-
 
 	$ref->{ua} = LWP::UserAgent->new(
 		'agent' => __PACKAGE__ . "/$VERSION",
@@ -75,13 +74,16 @@ sub setup
 	}
 	$mw->{ini} = $cfg;
 
-	$mw->{index} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/index.php";
+	my $proto = ($mw->_cfg("wiki", "ssl") ? "https:" : "http:");
+	$mw->{proto} = $proto; 
 
-	$mw->{query} = "http://" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
+	$mw->{index} = $proto . "//" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/index.php";
+
+	$mw->{query} =  $proto . "//" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/query.php"
 		if($mw->_cfg("wiki", "has_query"));
 
 	my $user = $mw->_cfg("bot", "user");
-	my $ret = $mw->login($user, $mw->_cfg("bot", "pass"))
+	my $ret = $mw->login($user, $mw->_cfg("bot", "pass"), $mw->_cfg("bot", "realm"))
 		if($user);
 
 	$mw->{msgcache_path} = $mw->_cfg("tmp", "msgcache");
@@ -180,11 +182,13 @@ sub DESTROY
 }
 sub login
 {
-	my($mw, $user, $pass) = @_;
+	my($mw, $user, $pass, $realm) = @_;
 	$user = $mw->_cfg("bot", "user")
 		unless $user;
 	$pass = $mw->_cfg("bot", "pass")
 		unless $pass;
+	$realm = $mw->_cfg("bot", "realm")
+		unless $realm;
 	return $mw->_error(ERR_NO_AUTHINFO)
 		unless($user && $pass);
 	return 1 if($mw->{logged_in}->{$mw->{index}, $user});
@@ -192,17 +196,41 @@ sub login
 	$mw->{ini}->{bot}->{user} = $user;
 	$mw->{ini}->{bot}->{pass} = $pass;
 
+    if($realm) {
+
+        $mw->{ua}->credentials($mw->_cfg("wiki", "host").':'.($mw->_cfg("wiki", "ssl") ? "443" : "80"), $realm, $user, $pass );
+        $mw->{logged_in}->{$mw->{index}, $user} = 1;
+        return 1;
+    }
+
 	my $res = $mw->{ua}->request(
 		POST $mw->{index} . "?title=Special:Userlogin&action=submitlogin",
 		Content_Type  => 'application/x-www-form-urlencoded',
 		Content       => [ ( 'wpName' => $user, 'wpPassword' => $pass, 'wpLoginattempt' => 'Log in' ) ]
 	);
-	if($res->code == 302)
+	if($res->code == 302 || $res->header("Set-Cookie"))
 	{
 		$mw->{logged_in}->{$mw->{index}, $user} = 1;
 		return 1;
 	}
+	warn "SOMETHING BAD WITH LOGIN:" . $res->as_string . "\n\n"; die;
+
 	return $mw->_error(ERR_LOGIN_FAILED);
+}
+sub logout
+{
+	my($mw, $host) = @_;
+
+	if($host)
+	{
+		delete $mw->{ua}->{cookie_jar}->{COOKIES}->{$host};
+	}
+	else
+	{
+		$mw->{ua}->{cookie_jar}->{COOKIES} = ();
+	}
+
+	return 1;
 }
 
 sub get
@@ -362,7 +390,7 @@ sub readcat
 std_interface:
 	my $next;
 get_one_page:
-	my $res = $mw->{ua}->get($mw->{index} . "?title=Category:$cat" . ($next ? "&from=$next" : "") . "&uselang=en");
+	my $res = $mw->{ua}->get($mw->{index} . "?title=Category:$cat\&showas=list" . ($next ? "&from=$next" : "") . "&uselang=en");
 	return unless $res->is_success;
 	$res = $res->content;
 
@@ -548,10 +576,13 @@ Reads configuration file in INI format; also performs login if username and
 password are specified. If file name is omited, "~/.bot.ini is used.
 
 Configuration file can use [bot], [wiki] and [tmp] sections. Keys 'user' and
-'pass' in 'bot' section specify login information. 'wiki' section B<must> have
-'host' and 'path' keys (for example, host may be 'en.wikipedia.org' and path
-may be 'w') which specify path to I<index.php> script. Section 'tmp' and key
-'msgcache' specify path to the MediaWiki messages cache.
+'pass' in 'bot' section specify login information, additionally the key 'realm'
+will trigger basic http authentication instead of a wiki login. 'wiki' section
+B<must> have 'host' and 'path' keys (for example, host may be 'en.wikipedia.org'
+and path may be 'w') which specify path to I<index.php> script. Also, the
+'wiki' section may specify the 'ssl' key (boolean 0/1) if the server uses an
+SSL connection. Section 'tmp' and key 'msgcache' specify path to the MediaWiki
+messages cache.
 
 Options 'has_query' and 'has_filepath' in 'wiki' section enable experimental
 optimized interfaces. Set has_query to 1 if there is query.php extension
@@ -567,10 +598,16 @@ string with file name). It should contain something like
  }
  (key of global hash is section and keys of sub-hashes are keys).
 
-=head3 $c->login([$user [, $password]])
+=head3 $c->login([$user [, $password [, $realm]]])
 
 Performs login if no login information was specified in configuration. Called
 automatically from setup().
+
+=head3 $c->logout([$host])
+
+Removes all HTTP cookies. All following edits will be anonymous until next login() call.
+If $host parameter is specified, only cookies for selected served (as in 'wiki'->'host'
+configuration key) are cleared.
 
 =head3 $c->switch(($wiki_hash_pointer | $wiki_host [, $wiki_path] [, $wiki_hash_pointer]))
 

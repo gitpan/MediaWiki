@@ -1,7 +1,7 @@
 package MediaWiki::page;
 require Exporter;
 @ISA = qw(Exporter);
-@EXPORT = qw(new);
+@EXPORT = qw();
 
 use strict;
 use vars qw(
@@ -15,7 +15,8 @@ use vars qw(
 	$pagehistory_delete_regex
 	$timestamp_regex
 	$historyuser_regex1
-	$historyuser_regex2
+	$historyuser_regex_reg
+	$historyuser_regex_anon
 	$noanon_regex
 	$minor_regex
 	$autocomment_regex
@@ -29,11 +30,13 @@ use vars qw(
 	$filepath_regex
 	$src_regex
 	$oldid_regex
+	$offset_regex
 );
 our @protection = ("", "autoconfirmed", "sysop");
 
 BEGIN
 {
+	use URI::Escape qw(uri_escape);
 	use HTTP::Request::Common;
 	use MediaWiki qw(ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP);
 
@@ -43,17 +46,18 @@ BEGIN
 	$edittime_regex = qr/(?<=value=["'])[0-9]+(?=["'] name=["']wpEdittime["'])/;
 	$watchthis_regex = qr/name=["']wpWatchthis["'] checked/;
 	$minoredit_regex = qr/(?<=value=["'])1(?=["'] name=["']wpMinoredit["'])/;
-	$edittoken_regex = qr/(?<=value=")[0-9a-f]+(?=" name=["']wpEditToken["'])/;
-	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=")[0-9a-f]+(?=["'])/;
+	$edittoken_regex = qr/(?<=value=["'])[0-9a-f]*\\?(?=["'] name=["']wpEditToken["'])/;
+	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=["'])[0-9a-f]+\\?(?=["'])/;
 	$autosumm_regex = qr/(?<=name=["']wpAutoSummary["'] value=["'])[0-9a-f]+(?=["'])/;
-	$edittoken_delete_regex = qr/.*wpEditToken["'] value=["'](.*?)["'].*/;
+	$edittoken_delete_regex = qr/^.*wpEditToken["'][^>]*?value=["'](.*?)["'].*$/s;
 	$pagehistory_delete_regex = qr/.*<ul id\=["']pagehistory["']>(.*?)<\/ul>.*/;
 
 	$timestamp_regex = qr/(?<=>).*?(?=<\/a> <span class=['"]history\-user['"]>)/;
 
 	$historyuser_regex1 = qr/(?<=<span class=["']history\-user["']>).*?(?=<\/span>)/;
-	$historyuser_regex2 = qr/(?<=&amp;target=).*?(?=["'])/;
-	$noanon_regex = qr/contribs<\/a>/;
+	$historyuser_regex_anon = qr/(?<=\:)[^"']*?(?=['"]>Talk<)/;
+	$historyuser_regex_reg = qr/(?<=:)(.*?)['"]>\1</;
+	$noanon_regex = qr/\>contribs\</;
 	$minor_regex = qr/span class=["']minor["']/;
 	$autocomment_regex = qr/(?<=<span class=["']autocomment["']>).*?(?=<\/span>)/;
 	$autocomment_delete_regex = qr/<span class=["']autocomment["']>.*?<\/span>\s*/;
@@ -67,7 +71,8 @@ BEGIN
 	$filepath_regex = qr/(?<=<div class=["']fullImageLink["'] id=["']file["']>)[.\n]*?(?=<\/div>)/;
 	$src_regex = qr/(?<=src=['"]).*?(?=['"])/;
 
-	$oldid_regex = qr/(?<=&amp;oldid=)[0-9]+(?=")/;
+	$oldid_regex = qr/(?<=&amp;oldid=)[0-9]+(?=["'])/;
+	$offset_regex = qr/(?<=offset=)[0-9]+/;
 }
 
 sub new
@@ -92,7 +97,7 @@ sub new
 sub oldid
 {
 	my($obj, $oldid) = @_;
-	my $t = $obj->{ua}->get($obj->_wiki_url . "&action=raw&oldid=$oldid");
+	my $t = $obj->{ua}->get($obj->_wiki_url . "&action=raw" . ($oldid ? "&oldid=$oldid" : ""));
 	return $t->is_success ? $t->content : undef;
 }
 sub load
@@ -156,34 +161,48 @@ sub save
 			'wpRecreate' => 1
 		)]
 	);
+	print $res->request->as_string, "\n\n", $res->as_string;
 	if($res->code == 302)
 	{
 		$obj->history_clear();
 		return 1;
 	}
+
+	# Handle size warning or forced preview
+	my $t = $res->content;
+	if($t =~ /Preview/)
+	{
+		$obj->prepare_update_tokens($t);
+		$res = $obj->{client}->{ua}->request(
+			POST $obj->_wiki_url . "&action=edit",
+			Content_Type  => 'application/x-www-form-urlencoded',
+			Content       => [(
+				'wpTextbox1' => $obj->{content},
+				'wpEdittime' => $obj->{edittime},
+				'wpSave' => 'Save page',
+				'wpSection' => '',
+				'wpSummary' => $obj->_summary(),
+				'wpEditToken' => $obj->{edittoken},
+				'title' => $obj->{title},
+				'action' => 'submit',
+				'wpMinoredit' => $obj->{minor},
+				'wpAutoSummary' => $obj->{autosumm},
+				'wpRecreate' => 1
+			)]
+		);
+		if($res->code == 302)
+		{
+			$obj->history_clear();
+			return 1;
+		}
+	}
 	return;
 }
-sub prepare
+
+sub prepare_update_tokens
 {
 	my $obj = shift;
-
-	my $t = $obj->{ua}->get($obj->_wiki_url . "&action=edit");
-	return unless $t->is_success;
-	$t = $t->content();
-
-	if($obj->{prepared}) # Must fill 'content' field
-	{
-		my($a) = split /<\/textarea>/, $t;
-		$a =~ s/.*<textarea.*?>//sg;
-
-		$a =~ s/&lt;/</g;
-		$a =~ s/&gt;/>/g;
-		$a =~ s/&amp;/&/g;
-		$a =~ s/&quot;/"/g;
-
-		$obj->{content} = $a;
-		$obj->{exists} = 1;
-	}
+	my $t = shift;
 
 	if($t =~ /$edittime_regex/)
 	{
@@ -205,6 +224,31 @@ sub prepare
 	{
 		$obj->{autosumm} = $&;
 	}
+}
+
+sub prepare
+{
+	my $obj = shift;
+
+	my $t = $obj->{ua}->get($obj->_wiki_url . "&action=edit");
+	return unless $t->is_success;
+	$t = $t->content();
+
+	if($obj->{prepared}) # Must fill 'content' field
+	{
+		my($a) = split /<\/textarea>/, $t;
+		$a =~ s/.*<textarea.*?>//sg;
+
+		$a =~ s/&lt;/</g;
+		$a =~ s/&gt;/>/g;
+		$a =~ s/&amp;/&/g;
+		$a =~ s/&quot;/"/g;
+
+		$obj->{content} = $a;
+		$obj->{exists} = 1;
+	}
+	$obj->prepare_update_tokens($t);
+	return;
 }
 sub exists
 {
@@ -233,7 +277,7 @@ sub content
 sub _wiki_url
 {
 	my($obj, $title) = @_;
-	return $obj->{client}->{index} . "?title=" . ($title || $obj->{title});
+	return $obj->{client}->{index} . "?title=" . uri_escape($title || $obj->{title});
 }
 sub _summary
 {
@@ -255,6 +299,16 @@ sub delete
 	}
 	$obj->{prepared} = 0;
 
+	my $res = $obj->{ua}->request(
+		POST $obj->_wiki_url . "&action=delete",
+		Content_Type  => 'application/x-www-form-urlencoded',
+		Content       => [(
+			'wpReason' => $obj->_summary(),
+			'wpEditToken' => $obj->{edittoken},
+			'wpConfirmB' => 'Delete page'
+		)]
+	);
+
 	return $obj->{ua}->request(
 		POST $obj->_wiki_url . "&action=delete",
 		Content_Type  => 'application/x-www-form-urlencoded',
@@ -271,10 +325,11 @@ sub restore
 
 	if(!$obj->{prepared})
 	{
-		my $res = $obj->{ua}->get($obj->_wiki_url . "&action=restore");
+		my $res = $obj->{ua}->get($obj->_wiki_url("Special:Undelete") . "/" . $obj->title);
 		return unless($res->is_success);
 		$res = $res->content;
 		$res =~ s/$edittoken_delete_regex/$1/s;
+
 		$obj->{edittoken} = $res;
 	}
 	$obj->{prepared} = 0;
@@ -285,6 +340,7 @@ sub restore
 		Content       => [(
 			'target' => $obj->{title},
 			'wpEditToken' => $obj->{edittoken},
+			'wpComment' => $obj->_summary(),
 			'restore' => 'confirm'
 		)]
 	)->is_success();
@@ -368,13 +424,6 @@ sub upload
 	my($obj, $content, $note, $force) = @_;
 	my $title = $obj->_pagename();
 
-	my $tmp = `mktemp`;
-	chomp $tmp;
-
-	open F, ">$tmp";
-	print F $content;
-	close F;
-
 	#
 	# TODO: check for all known warnings; return extended error info
 	#
@@ -387,7 +436,7 @@ first_try_or_redir:
 		POST $upload_url,
 		Content_Type  => 'multipart/form-data',
 		Content       => [(
-			'wpUploadFile' => [ $tmp ],
+			'wpUploadFile' => [ undef, $title, Content => $content ],
 			'wpDestFile' => $title,
 			'wpUploadDescription' => $note ? $note : "",
 			'wpUpload' => 'upload',
@@ -436,12 +485,13 @@ first_try_or_redir:
 	$res = $res->content();
 
 	$res =~ /$filepath_regex/g;
-	$& =~ /$src_regex/;
+	my $match = $&;
+	$match =~ /$src_regex/;
 	$path = $&;
 	return unless $path;
 
 expand_path:
-	$path = "http://" . $obj->{client}->_cfg("wiki", "host") . $path
+	$path = $obj->{client}->{proto} . "//" . $obj->{client}->_cfg("wiki", "host") . $path
 		if($path =~ /^\//);
 
 	return $path;
@@ -527,21 +577,24 @@ sub _history_init
 sub _history_preload
 {
 	my($obj, $offset) = @_;
-	my $page = $obj->{title};
+	my $page = $obj->{title}; my $pageq = quotemeta($page);
 	my $limit = $obj->{client}->{history_step} || 50;
 
 	my $wiki_path = $obj->{client}->_cfg("wiki", "path");
 	my $link_regex2 = qr/<a href=['"]\/$wiki_path\/index\.php(?:\/|\?title=)(.*?)\&.*?['"]>(.*?)<\/a>/;
-	my $offset_regex = qr/(?<=offset=)[0-9]+[^"]*" title="$page">next $limit<\/a>/;
+	my $offset_area_regex = qr/(?<=<)[^\(]*?(?=>next $limit)/;
 
-	my $res = $obj->{ua}->get($obj->_wiki_url . "&action=history&limit=$limit" . ($offset ? "&offset=$offset" : "") . "&uselang=en");
+	my $url = $obj->_wiki_url . "&action=history&limit=$limit" . ($offset ? "&offset=$offset" : "") . "&uselang=en";
+
+	my $res = $obj->{ua}->get($url);
 	return unless($res->is_success);
 	$res = $res->content();
 
-	if($res =~ /$offset_regex/)
+	if($res =~ /$offset_area_regex/)
 	{
-		my @a = split /\&/, $&;
-		$offset = shift @a;
+		my $match = $&;
+		$match =~ /$offset_regex/;
+		$offset = $match;
 	}
 	else
 	{
@@ -568,8 +621,26 @@ sub _history_preload
 		$item =~ /$historyuser_regex1/;
 		my $user = $&; my $anon;
 		$anon = ($user =~ /$noanon_regex/) ? 0 : 1;
-		$user =~ /$historyuser_regex2/;
-		$user = _url_decode($&);
+
+		if($anon)
+		{
+			$user =~ /$historyuser_regex_anon/;
+			$user = $&;
+		}
+		else
+		{
+			$user =~ /$historyuser_regex_reg/;
+			($user) = split(/['"]/, $&);
+			$user = _url_decode($user);
+		}
+		#
+		# For old MediaWiki versions - if parsing failed
+		#
+		if($user =~ /<a href/)
+		{
+			$user =~ /(?<=\>).*?(?=\<)/;
+			$user = $&;
+		}
 
 		my $minor = 0;
 		$minor = 1
@@ -617,7 +688,6 @@ sub _history_preload
 sub history
 {
 	my($obj, $cb) =  @_;
-	my $limit = $obj->{client}->{history_step} || 50;
 	my $offset; my $j = 0;
 
 	$obj->_history_init();
@@ -709,7 +779,6 @@ sub revert
 sub find_diff
 {
 	my($obj, $regex) =  @_;
-	my $limit = $obj->{client}->{history_step} || 50;
 	my $offset; my $j = 0;
 
 	$obj->_history_init();
@@ -719,7 +788,7 @@ sub find_diff
 
 		for(my $k = $j; $k < @{$obj->{history}}; $k ++, $j ++)
 		{
-			if($obj->{history}->[$k] !~ /$regex/)
+			if($obj->oldid($obj->{history}->[$k]->{oldid}) !~ /$regex/)
 			{
 				return unless($k);
 				return $obj->{history}->[$k-1];

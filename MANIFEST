@@ -15,5 +15,6 @@ t/test04_history.t
 t/test05_replace.t
 t/test06_upload.t
 t/test07_switch.t
+t/test08_delete.t
 t/test99_pod.t
 t/test99_pod_coverage.t
