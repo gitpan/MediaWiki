@@ -3,7 +3,6 @@ Module MediaWiki changes log.
 28.04.2007 - version 1.1
 major bugfixes
 * now module has full UTF-8 support.
-* added *author* history functions (is_only_author() etc.).
 * fixed critical bug in find_diff().
 * added HTTPS support and Basic HTTP Auth.
 * works with MediaWiki 1.10.

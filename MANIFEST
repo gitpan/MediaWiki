@@ -18,3 +18,4 @@ t/test07_switch.t
 t/test08_delete.t
 t/test99_pod.t
 t/test99_pod_coverage.t
+THANKS

@@ -1,0 +1,5 @@
+* Matthias Waldorf (Zoom) <matthias.waldorf@zoom.de>
+	upload without creating a tempfile
+
+* Max Cohan <max@endpoint.com>
+	SSL and http auth implementation
