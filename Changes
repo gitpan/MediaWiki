@@ -1,6 +1,14 @@
 Module MediaWiki changes log.
 -----------------------------------
-28.04.2007 - version 1.1
+28.04.2007 - version 1.11
+minor bugfixes
+* debug output removed
+* delete(), protect() etc. now return undef on errors
+* test 08 is skipped if there's no sysop flag
+* removed die() call from login()
+* full UTF-8 support for random()
+
+28.04.2007 - version 1.10
 major bugfixes
 * now module has full UTF-8 support.
 * fixed critical bug in find_diff().

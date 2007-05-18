@@ -31,6 +31,7 @@ use vars qw(
 	$src_regex
 	$oldid_regex
 	$offset_regex
+	$permission_error_regex
 );
 our @protection = ("", "autoconfirmed", "sysop");
 
@@ -73,6 +74,9 @@ BEGIN
 
 	$oldid_regex = qr/(?<=&amp;oldid=)[0-9]+(?=["'])/;
 	$offset_regex = qr/(?<=offset=)[0-9]+/;
+
+	# TODO: compile this only if admin interface enabled in bot.ini
+	$permission_error_regex = qr/<h1 class="firstHeading">Permission error<\/h1>/;
 }
 
 sub new
@@ -126,15 +130,17 @@ sub load
 		if($obj->{title} eq 'Special:Random')
 		{
 			my $title = $t->header("Title");
-			$title =~ s/\s*[—-](.*?)$//;
+			$title =~ s/\s*(—|-)(.*?)$//;
 			$obj->{title} = $title;
-			$obj->load();
+			return $obj->load();
 		}
 
 		$obj->{exists} = $t->code == 404 ? 0 : 1;
 	}
 	$obj->{title} =~ tr/_/ /;
 	$obj->{loaded} = 1;
+
+	return 1;
 }
 sub save
 {
@@ -161,7 +167,6 @@ sub save
 			'wpRecreate' => 1
 		)]
 	);
-	print $res->request->as_string, "\n\n", $res->as_string;
 	if($res->code == 302)
 	{
 		$obj->history_clear();
@@ -294,6 +299,7 @@ sub delete
 		my $res = $obj->{ua}->get($obj->_wiki_url . "&action=delete");
 		return unless($res->is_success);
 		$res = $res->content;
+		return if($res =~ /$permission_error_regex/);
 		$res =~ s/$edittoken_delete_regex/$1/s;
 		$obj->{edittoken} = $res;
 	}
@@ -308,16 +314,7 @@ sub delete
 			'wpConfirmB' => 'Delete page'
 		)]
 	);
-
-	return $obj->{ua}->request(
-		POST $obj->_wiki_url . "&action=delete",
-		Content_Type  => 'application/x-www-form-urlencoded',
-		Content       => [(
-			'wpReason' => $obj->_summary(),
-			'wpEditToken' => $obj->{edittoken},
-			'wpConfirmB' => 'confirm'
-		)]
-	)->is_success();
+	return if($res->is_success && $res->content !~ /$permission_error_regex/);
 }
 sub restore
 {
@@ -328,13 +325,14 @@ sub restore
 		my $res = $obj->{ua}->get($obj->_wiki_url("Special:Undelete") . "/" . $obj->title);
 		return unless($res->is_success);
 		$res = $res->content;
+		return if($res =~ /$permission_error_regex/);
 		$res =~ s/$edittoken_delete_regex/$1/s;
 
 		$obj->{edittoken} = $res;
 	}
 	$obj->{prepared} = 0;
 
-	return $obj->{ua}->request(
+	my $res = $obj->{ua}->request(
 		POST $obj->_wiki_url("Special:Undelete") . "&action=submit",
 		Content_Type  => 'application/x-www-form-urlencoded',
 		Content       => [(
@@ -343,7 +341,8 @@ sub restore
 			'wpComment' => $obj->_summary(),
 			'restore' => 'confirm'
 		)]
-	)->is_success();
+	);
+	return if($res->is_success && $res->content !~ /$permission_error_regex/);
 }
 sub protect
 {
@@ -360,8 +359,7 @@ sub protect
 	}
 	$obj->{prepared} = 0;
 
-	return
-		$obj->{ua}->request(
+	my $res = $obj->{ua}->request(
 		POST $obj->_wiki_url . "&action=protect",
 		Content_Type  => 'application/x-www-form-urlencoded',
 		Content       => [(
@@ -370,7 +368,8 @@ sub protect
 			'mwProtect-reason' => $obj->_summary(),
 			'wpEditToken' => $obj->{edittoken}
 		)]
-	)->is_success();
+	);
+	return if($res->is_success && $res->content !~ /$permission_error_regex/);
 }
 sub move
 {
@@ -381,6 +380,7 @@ sub move
 		my $res = $obj->{ua}->get($obj->_wiki_url("Special:Movepage/" . $obj->{title}));
 		return unless($res->is_success);
 		$res = $res->content;
+		return if($res =~ /$permission_error_regex/);
 		$res =~ s/$edittoken_delete_regex/$1/s;
 		$obj->{edittoken} = $res;
 	}

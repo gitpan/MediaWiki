@@ -4,7 +4,7 @@ require Exporter;
 @EXPORT = qw(ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP ERR_NOT_FOUND);
 use strict;
 
-our($VERSION) = "1.10";
+our($VERSION) = "1.11";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -213,7 +213,6 @@ sub login
 		$mw->{logged_in}->{$mw->{index}, $user} = 1;
 		return 1;
 	}
-	warn "SOMETHING BAD WITH LOGIN:" . $res->as_string . "\n\n"; die;
 
 	return $mw->_error(ERR_LOGIN_FAILED);
 }
