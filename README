@@ -1,9 +1,9 @@
-The MediaWiki 1.11 Readme.
+The MediaWiki 1.12 Readme.
 
 The MediaWiki module provides high-level interface to MediaWiki
 content management system.
 
-Author: Edward Chernenko <edwardspec@yahoo.com>.
+Author: Edward Chernenko <edwardspec@yahoo.com> (see THANKS for other contributors list).
 License: Artistic License(the same as the license of perl).
 See also: CMS::MediaWiki, WWW::Wikipedia
 

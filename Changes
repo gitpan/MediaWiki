@@ -1,5 +1,9 @@
 Module MediaWiki changes log.
 -----------------------------------
+24.09.2007 - version 1.12
+minor bugfixes
+* fixed editToken regexes
+
 28.04.2007 - version 1.11
 minor bugfixes
 * debug output removed

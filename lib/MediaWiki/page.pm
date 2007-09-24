@@ -47,8 +47,8 @@ BEGIN
 	$edittime_regex = qr/(?<=value=["'])[0-9]+(?=["'] name=["']wpEdittime["'])/;
 	$watchthis_regex = qr/name=["']wpWatchthis["'] checked/;
 	$minoredit_regex = qr/(?<=value=["'])1(?=["'] name=["']wpMinoredit["'])/;
-	$edittoken_regex = qr/(?<=value=["'])[0-9a-f]*\\?(?=["'] name=["']wpEditToken["'])/;
-	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=["'])[0-9a-f]+\\?(?=["'])/;
+	$edittoken_regex = qr/(?<=value=["'])[0-9a-f+]*\\?(?=["'] name=["']wpEditToken["'])/;
+	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=["'])[0-9a-f+]+\\?(?=["'])/;
 	$autosumm_regex = qr/(?<=name=["']wpAutoSummary["'] value=["'])[0-9a-f]+(?=["'])/;
 	$edittoken_delete_regex = qr/^.*wpEditToken["'][^>]*?value=["'](.*?)["'].*$/s;
 	$pagehistory_delete_regex = qr/.*<ul id\=["']pagehistory["']>(.*?)<\/ul>.*/;

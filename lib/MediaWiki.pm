@@ -4,7 +4,7 @@ require Exporter;
 @EXPORT = qw(ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP ERR_NOT_FOUND);
 use strict;
 
-our($VERSION) = "1.11";
+our($VERSION) = "1.12";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -991,7 +991,7 @@ All examples start with
       if($e->{user} eq $blanker) # Only author
       {
          $pg->{content} .= "{{db-author}}"; # Delete note for admins
-	 $pg->{summary} = "+ {{db-author}}"
+	 $pg->{summary} = "+ {{db-author}}";
 	 $pg->save();
       }
       else
