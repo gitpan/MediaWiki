@@ -4,7 +4,7 @@ require Exporter;
 @EXPORT = qw(ERR_NO_ERROR ERR_NO_INIHASH ERR_PARSE_INI ERR_NO_AUTHINFO ERR_NO_MSGCACHE ERR_LOGIN_FAILED ERR_LOOP ERR_NOT_FOUND);
 use strict;
 
-our($VERSION) = "1.12";
+our($VERSION) = "1.13";
 our($has_ini, $has_dumper);
 
 BEGIN
@@ -65,6 +65,7 @@ sub setup
 			case => 'sensitive',
 			forValue => \&_ini_keycheck
 		);
+
 		return $mw->_error(ERR_PARSE_INI)
 			unless($cfg);
 	}
@@ -75,7 +76,7 @@ sub setup
 	$mw->{ini} = $cfg;
 
 	my $proto = ($mw->_cfg("wiki", "ssl") ? "https:" : "http:");
-	$mw->{proto} = $proto; 
+	$mw->{proto} = $proto;
 
 	$mw->{index} = $proto . "//" . $mw->_cfg("wiki", "host") . "/" . $mw->_cfg("wiki", "path") . "/index.php";
 
@@ -151,6 +152,9 @@ sub switch
 			if(!exists $wiki_cfg{$key});
 	}
 
+	$wiki_cfg{path} = ""
+		if(!$wiki_cfg{path});
+
 	$mw->setup({
 		'bot' => $mw->{ini}->{bot},
 		'wiki' => \%wiki_cfg,
@@ -196,12 +200,12 @@ sub login
 	$mw->{ini}->{bot}->{user} = $user;
 	$mw->{ini}->{bot}->{pass} = $pass;
 
-    if($realm) {
-
-        $mw->{ua}->credentials($mw->_cfg("wiki", "host").':'.($mw->_cfg("wiki", "ssl") ? "443" : "80"), $realm, $user, $pass );
-        $mw->{logged_in}->{$mw->{index}, $user} = 1;
-        return 1;
-    }
+	if($realm)
+	{
+		$mw->{ua}->credentials($mw->_cfg("wiki", "host").':'.($mw->_cfg("wiki", "ssl") ? "443" : "80"), $realm, $user, $pass );
+		$mw->{logged_in}->{$mw->{index}, $user} = 1;
+		return 1;
+	}
 
 	my $res = $mw->{ua}->request(
 		POST $mw->{index} . "?title=Special:Userlogin&action=submitlogin",
@@ -462,7 +466,12 @@ sub text
 sub block
 {
 	my($mw, $user, $time) = @_;
-	return $mw->get("User:$user", "")->block($time);
+	return $mw->get("User:$user", "")->xblock($time, 1, 1, 1);
+}
+sub xblock
+{
+	my($mw, $user, $time, $anonOnly, $createAccount, $enableAutoblock) = @_;
+	return $mw->get("User:$user", "")->xblock($time, $anonOnly, $createAccount, $enableAutoblock);
 }
 sub unblock
 {
@@ -505,6 +514,7 @@ MediaWiki - OOP MediaWiki engine client
  $is_ok = $c->upload("image_name", `cat myfoto.jpg`, "some notes", $force);
 
  $is_ok = $c->block("VasyaPupkin", "2 days");
+ $is_ok = $c->xblock("SomeBadBot", "2 weeks", 0, 1, 0);
  $is_ok = $c->unblock("VasyaPupkin");
 
  $c->{summary} = "Automatic auto-replacements 1.2";
@@ -541,6 +551,7 @@ MediaWiki - OOP MediaWiki engine client
  $is_ok = $pg->upload(`cat myfoto.jpg`, "some notes", $force);
 
  $is_ok = $pg->block("2 days");
+ $is_ok = $pg->xblock("3 days", 0, 1, 0);
  $is_ok = $pg->unblock();
 
  $pg->history(sub { my $edit_p = shift; } );
@@ -674,11 +685,27 @@ Blocks specified user from editing. Block time should be in format
  [0-9]+ (seconds|minutes|hours|days|months|years)
 or in L<ctime> format.
 
+Equal to $c->xblock($user_name, $block_time, 1, 1, 1) call (see below).
+
+B<Note>: this operation requires sysop rights.
+
+=head3 $c->xblock($user_name, $block_time, $anonOnly, $createAccount, $enableAutoblock)
+
+Extended blocking, does the same as block() except for the following:
+1. if anonOnly is 1 and we're blocking an IP, registered users who edit from this IP
+aren't affected
+2. if createAccount is 0, it's not allowed to register new accounts from this IP
+3. if enableAutoblock is 1 and we're blocking a registered user, the IP used by
+this user is also blocked (it remains hidden in blocks log, however).
+See http://meta.wikimedia.org/wiki/Help:Block_and_unblock for more info.
+
 B<Note>: this operation requires sysop rights.
 
 =head3 $c->unblock($user_name)
 
 Unblocks specified user.
+
+B<Note>: this operation requires sysop rights.
 
 B<Note>: this operation requires sysop rights.
 
@@ -803,7 +830,11 @@ See $c->download()
 
 See $c->block
 
-=head3 $pg->unblock()
+=head3 $pg->block($block_time)
+
+See $c->xblock
+
+=head3 $pg->unblock($block_time, $anonOnly, $createAccount, $enableAutoblock)
 
 See $c->unblock
 

@@ -1,8 +1,15 @@
-* Matthias Waldorf (Zoom) <matthias.waldorf@zoom.de>
-	upload without creating a tempfile
+* Matthias Waldorf <matthias.waldorf@zoom.de>
+	Upload without creating a tempfile
 
 * Max Cohan <max@endpoint.com>
 	SSL and http auth implementation
 
 * Tim Wilde <pause@krellis.org>
 	Help with some updates when wiki pages changed
+
+* Jools Smith <buzz@exotica.org.uk>
+	Many bugfixes in history, pages editing etc.,
+	a lot of testing with new version of wiki engine.
+
+* Larry Pieniazek <lar@miltontrainworks.com>
+	Help with extended blocking implementation.

@@ -32,6 +32,7 @@ use vars qw(
 	$oldid_regex
 	$offset_regex
 	$permission_error_regex
+	$numbersonly_regex
 );
 our @protection = ("", "autoconfirmed", "sysop");
 
@@ -47,8 +48,8 @@ BEGIN
 	$edittime_regex = qr/(?<=value=["'])[0-9]+(?=["'] name=["']wpEdittime["'])/;
 	$watchthis_regex = qr/name=["']wpWatchthis["'] checked/;
 	$minoredit_regex = qr/(?<=value=["'])1(?=["'] name=["']wpMinoredit["'])/;
-	$edittoken_regex = qr/(?<=value=["'])[0-9a-f+]*\\?(?=["'] name=["']wpEditToken["'])/;
-	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=["'])[0-9a-f+]+\\?(?=["'])/;
+	$edittoken_regex = qr/(?<=value=["'])[0-9a-f]*\+?\\?(?=["'] name=["']wpEditToken["'])/;
+	$edittoken_rev_regex = qr/(?<=name=['"]wpEditToken['"] value=["'])[0-9a-f]+\+?\\?(?=["'])/;
 	$autosumm_regex = qr/(?<=name=["']wpAutoSummary["'] value=["'])[0-9a-f]+(?=["'])/;
 	$edittoken_delete_regex = qr/^.*wpEditToken["'][^>]*?value=["'](.*?)["'].*$/s;
 	$pagehistory_delete_regex = qr/.*<ul id\=["']pagehistory["']>(.*?)<\/ul>.*/;
@@ -74,6 +75,7 @@ BEGIN
 
 	$oldid_regex = qr/(?<=&amp;oldid=)[0-9]+(?=["'])/;
 	$offset_regex = qr/(?<=offset=)[0-9]+/;
+	$numbersonly_regex = qr/.*?([0-9]+).*/;
 
 	# TODO: compile this only if admin interface enabled in bot.ini
 	$permission_error_regex = qr/<h1 class="firstHeading">Permission error<\/h1>/;
@@ -287,7 +289,7 @@ sub _wiki_url
 sub _summary
 {
 	my $obj = shift;
-	return $obj->{summary} || $obj->{client}->{summary} || "Bot (Edward's framework)";
+	return $obj->{summary} || $obj->{client}->{summary} || "Edit via perl MediaWiki framework ($MediaWiki::VERSION)";
 }
 
 sub delete
@@ -503,9 +505,9 @@ sub download
 	return $obj->{ua}->get($path)->content();
 }
 
-sub block
+sub xblock
 {
-	my($obj, $time) = @_;
+	my($obj, $time, $anonOnly, $createAccount, $enableAutoblock) = @_;
 	my $user = $obj->_pagename();
 
 	if(!$obj->{prepared})
@@ -527,9 +529,17 @@ sub block
 			'wpBlockOther' => $time,
 			'wpBlockReason' => $obj->_summary(),
 			'wpEditToken' => $obj->{edittoken},
-			'wpBlock' => 'Block'
+			'wpBlock' => 'Block',
+			'wpAnonOnly' => $anonOnly,
+			'wpCreateAccount' => $createAccount,
+			'wpEnableAutoblock' => $enableAutoblock,
 		)]
 	)->code == 302;
+}
+sub block
+{
+	my($obj, $time) = @_;
+	return $obj->xblock($time, 1, 1, 1);
 }
 sub unblock
 {
@@ -578,7 +588,7 @@ sub _history_preload
 {
 	my($obj, $offset) = @_;
 	my $page = $obj->{title}; my $pageq = quotemeta($page);
-	my $limit = $obj->{client}->{history_step} || 50;
+	my $limit = $obj->{history_step} || 50;
 
 	my $wiki_path = $obj->{client}->_cfg("wiki", "path");
 	my $link_regex2 = qr/<a href=['"]\/$wiki_path\/index\.php(?:\/|\?title=)(.*?)\&.*?['"]>(.*?)<\/a>/;
@@ -595,6 +605,8 @@ sub _history_preload
 		my $match = $&;
 		$match =~ /$offset_regex/;
 		$offset = $match;
+
+		$offset =~ s/$numbersonly_regex/$1/g;
 	}
 	else
 	{

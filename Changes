@@ -1,5 +1,11 @@
 Module MediaWiki changes log.
 -----------------------------------
+06.01.2008 - version 1.13
+minor feature enhancements
+* fixes in history functions.
+* small fix in switch().
+* added xblock() function.
+
 24.09.2007 - version 1.12
 minor bugfixes
 * fixed editToken regexes
